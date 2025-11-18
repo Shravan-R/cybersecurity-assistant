@@ -1,0 +1,44 @@
+cybersec-assistant/
+│
+├── .env
+├── requirements.txt
+├── main.py                # FastAPI backend entry
+├── config/
+│   └── settings.py        # central config for API keys, thresholds, etc.
+│
+├── ai_agent/              # Core AI logic
+│   ├── __init__.py
+│   ├── url_analyzer.py
+│   ├── password_checker.py
+│   ├── text_detector.py
+│   ├── agent_decision.py  # routes tasks, evaluates threat, selects action
+│   └── utils.py           # helper functions, scoring, normalization
+│
+├── responders/            # handles actions
+│   ├── __init__.py
+│   ├── n8n_webhook.py     # sends data to n8n
+│   ├── email_alert.py
+│   ├── slack_alert.py
+│   └── db_logger.py       # logging events
+│
+├── memory/                # optional, advanced
+│   ├── __init__.py
+│   └── knowledge_store.py # stores & retrieves past incidents, patterns
+│
+├── workflows/             # n8n workflows
+│   └── n8n_webhook.json
+│
+├── ui/                    # optional frontend
+│   ├── app.py             # Streamlit dashboard
+│   └── components.py      # reusable UI elements
+│
+├── tests/                 # unit & integration tests
+│   ├── test_url_analyzer.py
+│   ├── test_password_checker.py
+│   ├── test_text_detector.py
+│   └── test_agent_decision.py
+│
+└── docs/                  # documentation for pitching/resume
+    ├── architecture.md
+    ├── api_endpoints.md
+    └── screenshots/
