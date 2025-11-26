@@ -5,7 +5,6 @@ python-dotenv
 openai
 streamlit
 pydantic
-requests
 aiohttp
 cryptography
 pytest
@@ -15,3 +14,4 @@ requests
 pytest
 pytest-asyncio
 pyarrow
+responder
