@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     # API keys
     OPENAI_API_KEY: Optional[str] = Field("", env="OPENAI_API_KEY")
     VIRUSTOTAL_API_KEY: Optional[str] = Field("", env="VT_API_KEY")
-    HIBP_API_KEY: Optional[str] = Field(None, env="HIBP_API_KEY")
+    #HIBP_API_KEY: Optional[str] = Field(None, env="HIBP_API_KEY")
 
     # Optional local common password file
     COMMON_PASSWORDS_FILE: Optional[str] = Field(None, env="COMMON_PASSWORDS_FILE")
