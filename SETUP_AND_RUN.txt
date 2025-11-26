@@ -1,0 +1,186 @@
+Python 3.10+
+
+Git
+
+pip (Python package manager)
+
+Internet connection (for VT, OpenAI, HIBP)
+
+Optional:
+
+n8n (local or cloud)
+
+Slack webhook
+
+Email SMTP server
+
+📥 2. Clone the Repository
+git clone https://github.com/YOUR_USERNAME/cybersec-assistant.git
+cd cybersec-assistant
+
+🧰 3. Create & Activate Virtual Environment
+Windows:
+python -m venv venv
+venv\Scripts\activate
+
+macOS/Linux:
+python3 -m venv venv
+source venv/bin/activate
+
+
+You should see:
+
+(venv) C:\yourproject>
+
+📦 4. Install Dependencies
+pip install -r requirements.txt
+
+🔐 5. Create .env File
+
+Create a new file named .env in the root directory.
+
+Paste and fill this in:
+
+OPENAI_API_KEY=sk-...
+VT_API_KEY=VT-...
+HIBP_API_KEY=
+
+COMMON_PASSWORDS_FILE=./data/common-10000.txt
+
+N8N_WEBHOOK_URL=http://localhost:5678/webhook/cybersec-assistant-webhook
+
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your@gmail.com
+SMTP_PASS=app_password
+EMAIL_FROM=your@gmail.com
+ALERT_EMAIL_TO=recipient@example.com
+
+DATABASE_URL=sqlite:///./events.db
+MEMORY_PATH=./memory_store.json
+
+HOST=0.0.0.0
+PORT=8000
+
+
+HIBP API key is not needed — we use free k-anonymity.
+
+🔑 6. (Optional) Download Common Passwords List
+
+Run:
+
+python scripts/download_common_passwords.py
+
+
+This generates:
+
+data/common-10000.txt
+
+▶️ 7. Run the Backend Server (FastAPI)
+
+Make sure your virtual environment is active:
+
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+
+The API is now live at:
+
+http://localhost:8000
+
+
+Check health:
+
+http://localhost:8000/
+
+🖥️ 8. Run the Dashboard (Streamlit UI)
+
+Open a new terminal (keep server running):
+
+streamlit run ui/app.py
+
+
+Dashboard will open at:
+
+http://localhost:8501
+
+🔁 9. n8n Workflow Setup (Optional)
+
+Install & run n8n:
+
+n8n start
+
+
+Import workflow from:
+
+workflows/n8n_webhook.json
+
+
+Activate the workflow
+
+Match your .env → N8N_WEBHOOK_URL with n8n's webhook URL
+
+Now alerts will trigger automatically.
+
+🧪 10. Run Tests
+pytest -q
+
+📌 11. Usage Examples
+1) URL Analysis
+POST /analyze/url
+{"url": "http://example.com"}
+
+2) Password Analysis
+POST /analyze/password
+{"password": "MySecret123!"}
+
+3) Text Analysis
+POST /analyze/text
+{"text": "Your account has been suspended..."}
+
+4) Full Multi-Agent Flow
+POST /agent/route
+{"type": "url", "url": "http://malicious.test"}
+
+
+The system will:
+
+Analyze
+
+Decide
+
+Log event
+
+Update memory
+
+Trigger Slack/email/n8n alerts
+
+🛠️ 12. Folder Structure Quick View
+cybersec-assistant/
+│ main.py
+│ .env
+│ requirements.txt
+│
+├── ai_agent/
+├── responders/
+├── memory/
+├── ui/
+├── tests/
+└── docs/
+
+🎯 13. Shutdown
+
+Stop server:
+
+CTRL + C
+
+
+Deactivate virtualenv:
+
+deactivate
+
+🏁 Done!
+
+Your Cybersec Assistant is now fully set up and running.
+Enjoy analyzing threats, watching automated workflows, and monitoring your evolving AI memory system 🚀

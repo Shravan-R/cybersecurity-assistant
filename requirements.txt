@@ -10,3 +10,8 @@ aiohttp
 cryptography
 pytest
 pytest-asyncio
+zxcvbn
+requests
+pytest
+pytest-asyncio
+

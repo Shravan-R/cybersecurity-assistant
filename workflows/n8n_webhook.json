@@ -1,0 +1,59 @@
+{
+    "name": "Cybersec Assistant - Alert Workflow",
+    "nodes": [
+      {
+        "parameters": {
+          "path": "cybersec-assistant-webhook",
+          "httpMethod": "POST",
+          "responseMode": "onReceived",
+          "responseData": "={{{\"status\":\"received\"}}}"
+        },
+        "name": "Webhook Trigger",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [250, 300]
+      },
+      {
+        "parameters": {
+          "url": "={{$node[\"Webhook Trigger\"].json[\"body\"][\"input\"] || 'No input'}}",
+          "options": {}
+        },
+        "name": "HTTP Request (Logger)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 1,
+        "position": [700, 300]
+      },
+      {
+        "parameters": {
+          "webhookUrl": "https://hooks.slack.com/services/REPLACE/WITH/SLACK_WEBHOOK",
+          "text": "={{`Cybersec Alert: type=${$node[\"Webhook Trigger\"].json[\"body\"][\"type\"]} action=${$node[\"Webhook Trigger\"].json[\"body\"][\"action\"]} score=${$node[\"Webhook Trigger\"].json[\"body\"][\"combined_score\"]} reason=${$node[\"Webhook Trigger\"].json[\"body\"][\"reason\"]}`}}"
+        },
+        "name": "Slack - Post Incoming Webhook",
+        "type": "n8n-nodes-base.slack",
+        "typeVersion": 1,
+        "position": [450, 150]
+      }
+    ],
+    "connections": {
+      "Webhook Trigger": {
+        "main": [
+          [
+            {
+              "node": "Slack - Post Incoming Webhook",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "HTTP Request (Logger)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {},
+    "id": null
+  }
+  
