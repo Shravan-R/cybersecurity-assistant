@@ -1,0 +1,14 @@
+{
+    "short_term": [],
+    "long_term": {
+        "total_events": 0,
+        "avg_risk_score": 0.0,
+        "top_malicious_urls": {},
+        "password_weakness": {
+            "very_weak": 0,
+            "weak": 0,
+            "reasonable": 0,
+            "strong": 0
+        }
+    }
+}
