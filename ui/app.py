@@ -24,7 +24,7 @@ st.set_page_config(
 
 # ---------------------- SIDEBAR ----------------------
 st.sidebar.title("🛡️ Cybersec Assistant")
-page = st.sidebar.radio("Navigation", ["Home", "Analyze", "Events", "Memory"])
+page = st.sidebar.radio("Navigation", ["Home", "Analyze", "Memory"])
 
 # ---------------------- HOME -------------------------
 if page == "Home":
@@ -64,15 +64,6 @@ elif page == "Analyze":
             res = requests.post(f"{API_URL}/analyze/text", json={"text": txt})
             st.json(res.json())
 
-# ---------------------- EVENTS -----------------------
-elif page == "Events":
-    st.title("📜 Event History")
-
-    events = db.query_all(limit=100)
-    event_table(events)
-    risk_trend_chart(events)
-
-    st.info("Data refreshes automatically when you reload the page.")
 
 # ---------------------- MEMORY -----------------------
 elif page == "Memory":
