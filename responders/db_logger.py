@@ -1,88 +1,148 @@
 # responders/db_logger.py
 import sqlite3
-import json
+import threading
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Optional, List, Dict
+import os
+import re
+import logging
+
+logger = logging.getLogger("cybersec-assistant.dblogger")
 
 class DBLogger:
-    """
-    Simple SQLite logger for events.
-    'database_url' expected like 'sqlite:///./events.db' or path './events.db' or ':memory:'.
-    """
-
-    def __init__(self, database_url: str):
-        # Accept sqlite:///./path or direct path
-        if database_url.startswith("sqlite:///"):
-            path = database_url.split("sqlite:///")[-1]
-        else:
-            path = database_url
-        self.path = path or "./events.db"
-        self._init_db()
-
-    def _init_db(self):
-        con = sqlite3.connect(self.path, check_same_thread=False)
-        cur = con.cursor()
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS events(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts TEXT,
-                type TEXT,
-                combined_score INTEGER,
-                action TEXT,
-                reason TEXT,
-                payload TEXT
-            )
+    def __init__(self, db_path: str):
         """
-        )
-        con.commit()
-        con.close()
+        db_path can be:
+          - "./data/events.db"
+          - "sqlite:///./data/events.db"
+        If db_path is falsy, falls back to "./events.db".
+        """
+        if not db_path:
+            db_path = "./events.db"
 
-    def log_event(self, event: Dict[str, Any]) -> None:
-        con = sqlite3.connect(self.path)
-        cur = con.cursor()
-        cur.execute(
-            """
-            INSERT INTO events(ts,type,combined_score,action,reason,payload)
-            VALUES (?,?,?,?,?,?)
-        """,
-            (
-                datetime.utcnow().isoformat(),
-                event.get("type"),
-                int(event.get("combined_score") or 0),
-                event.get("action"),
-                (event.get("reason") or "")[:1000],
-                json.dumps(event),
-            ),
-        )
-        con.commit()
-        con.close()
+        # allow sqlite:///./path and sqlite:///{abs}
+        match = re.match(r"sqlite:(?:///?)(.+)", db_path)
+        if match:
+            sqlite_file = match.group(1)
+        else:
+            sqlite_file = db_path
 
-    def last_events(self, limit: int = 5) -> List[Dict[str, Any]]:
-        con = sqlite3.connect(self.path)
-        cur = con.cursor()
-        cur.execute(
-            "SELECT id, ts, type, combined_score, action, reason FROM events ORDER BY id DESC LIMIT ?",
-            (limit,),
-        )
-        rows = cur.fetchall()
-        con.close()
-        return [
-            {"id": r[0], "ts": r[1], "type": r[2], "score": r[3], "action": r[4], "reason": r[5]} for r in rows
-        ]
-
-    def query_all(self, limit: int = 100) -> List[Dict[str, Any]]:
-        con = sqlite3.connect(self.path)
-        cur = con.cursor()
-        cur.execute("SELECT id, ts, type, combined_score, action, reason, payload FROM events ORDER BY id DESC LIMIT ?", (limit,))
-        rows = cur.fetchall()
-        con.close()
-        out = []
-        for r in rows:
-            payload = {}
+        # ensure directory exists
+        dirpath = os.path.dirname(os.path.abspath(sqlite_file))
+        if dirpath and not os.path.exists(dirpath):
             try:
-                payload = json.loads(r[6])
-            except Exception:
-                payload = {}
-            out.append({"id": r[0], "ts": r[1], "type": r[2], "score": r[3], "action": r[4], "reason": r[5], "payload": payload})
-        return out
+                os.makedirs(dirpath, exist_ok=True)
+            except Exception as e:
+                logger.warning("Could not create DB directory %s: %s", dirpath, e)
+
+        self.db_path = sqlite_file
+        self._lock = threading.Lock()
+        self._ensure_tables()
+
+    def _connect(self) -> sqlite3.Connection:
+        # enable row factory for convenience
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _ensure_tables(self) -> None:
+        with self._connect() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    type TEXT,
+                    action TEXT,
+                    score REAL,
+                    reason TEXT,
+                    data TEXT,
+                    created_at TEXT
+                )
+            """)
+            
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
+            if "score" not in columns:
+                conn.execute("ALTER TABLE events ADD COLUMN score REAL;")
+            if "reason" not in columns:
+                conn.execute("ALTER TABLE events ADD COLUMN reason TEXT;")
+            if "data" not in columns:
+                conn.execute("ALTER TABLE events ADD COLUMN data TEXT;")
+            if "created_at" not in columns:
+                conn.execute("ALTER TABLE events ADD COLUMN created_at TEXT;")
+            conn.commit()
+
+    # ------------------ SAVE EVENT ------------------
+    def log_event(self, decision: dict) -> None:
+        """
+        Insert a decision dict into events table.
+        Expected keys in decision: type, action, combined_score, reason.
+        Stores str(decision) in data column as fallback.
+        """
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute("""
+                    INSERT INTO events (type, action, score, reason, data, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    decision.get("type"),
+                    decision.get("action"),
+                    decision.get("combined_score"),
+                    decision.get("reason"),
+                    str(decision),
+                    datetime.utcnow().isoformat()
+                ))
+                conn.commit()
+
+    # ------------------ GET LAST EVENTS ------------------
+    def get_last_events(self, limit: int = 20) -> List[Dict]:
+        if limit <= 0:
+            limit = 20
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT id, type, action, score, reason, data, created_at
+                FROM events
+                ORDER BY id DESC
+                LIMIT ?
+            """, (limit,))
+            rows = cur.fetchall()
+
+            return [
+                {
+                    "id": int(r["id"]),
+                    "type": r["type"],
+                    "action": r["action"],
+                    "score": r["score"],
+                    "reason": r["reason"],
+                    "data": r["data"],
+                    "created_at": r["created_at"]
+                }
+                for r in rows
+            ]
+
+    # ------------------ GET SINGLE EVENT ------------------
+    def get_event(self, event_id: int) -> Optional[Dict]:
+        with self._connect() as conn:
+            cur = conn.execute("""
+                SELECT id, type, action, score, reason, data, created_at
+                FROM events
+                WHERE id = ?
+            """, (event_id,))
+            r = cur.fetchone()
+            if not r:
+                return None
+            return {
+                "id": int(r["id"]),
+                "type": r["type"],
+                "action": r["action"],
+                "score": r["score"],
+                "reason": r["reason"],
+                "data": r["data"],
+                "created_at": r["created_at"]
+            }
+
+    # ------------------ DELETE EVENT ------------------
+    def delete_event(self, event_id: int) -> bool:
+        with self._lock:
+            with self._connect() as conn:
+                cur = conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+                conn.commit()
+                return cur.rowcount > 0
