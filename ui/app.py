@@ -1,10 +1,15 @@
 # ui/app.py
+import sys
+import os
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(ROOT_DIR)
 import streamlit as st
 import requests
 from responders.db_logger import DBLogger
 from memory.knowledge_store import KnowledgeStore
 from config.settings import settings
 from ui.components import metric_card, event_table, risk_trend_chart
+
 
 API_URL = f"http://{settings.HOST}:{settings.PORT}"
 

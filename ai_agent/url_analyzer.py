@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 import httpx
 from config.settings import settings
 
-VT_API = settings.VIRUSTOTAL_API_KEY
+VT_API = settings.VT_API_KEY
 VT_BASE = "https://www.virustotal.com/api/v3"
 DEFAULT_TIMEOUT = 30.0
 

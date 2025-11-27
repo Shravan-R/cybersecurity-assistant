@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # API keys
     OPENAI_API_KEY: Optional[str] = Field("", env="OPENAI_API_KEY")
-    VIRUSTOTAL_API_KEY: Optional[str] = Field("", env="VT_API_KEY")
-    #HIBP_API_KEY: Optional[str] = Field(None, env="HIBP_API_KEY")
+    VT_API_KEY: Optional[str] = Field("", env="VT_API_KEY")
+    # HIBP_API_KEY: Optional[str] = Field(None, env="HIBP_API_KEY")
 
     # Optional local common password file
     COMMON_PASSWORDS_FILE: Optional[str] = Field(None, env="COMMON_PASSWORDS_FILE")
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = Field("info", env="LOG_LEVEL")
 
     # Server
-    HOST: str = Field("0.0.0.0", env="HOST")
+    HOST: str = Field("127.0.0.1", env="HOST")
     PORT: int = Field(8000, env="PORT")
 
     # Pydantic v2 model config
