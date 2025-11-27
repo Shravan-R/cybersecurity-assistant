@@ -2,8 +2,9 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import uvicorn
 import logging
+import uvicorn
+from typing import Any
 
 from config.settings import settings
 
@@ -22,14 +23,13 @@ from responders.email_alert import EmailAlert
 # Memory
 from memory.knowledge_store import KnowledgeStore
 
-# ---------- Setup logging ----------
+# ---------- Logging ----------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("cybersec-assistant")
 
 # ---------- FastAPI app ----------
 app = FastAPI(title="Cybersec Assistant API")
 
-# allow CORS for localhost/dev (adjust origins in production)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # tighten this for production
@@ -38,17 +38,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------- instantiate global components ----------
+# ---------- Instantiate components ----------
 url_analyzer = UrlAnalyzer()
 password_checker = PasswordChecker()
 text_detector = TextDetector()
 decision_agent = AgentDecision()
 
 db_logger = DBLogger(settings.DATABASE_URL)
-# n8n responder expects an async trigger_workflow method
 n8n_responder = N8NResponder(settings.N8N_WEBHOOK_URL)
 
-# optional: Slack / Email (configure via env)
 slack_responder = SlackAlert(getattr(settings, "SLACK_WEBHOOK_URL", None))
 email_responder = EmailAlert(
     smtp_host=getattr(settings, "SMTP_HOST", None) or "",
@@ -58,10 +56,9 @@ email_responder = EmailAlert(
     from_addr=getattr(settings, "EMAIL_FROM", None),
 )
 
-# memory store (file-backed)
-memory = KnowledgeStore(file_path=getattr(settings, "MEMORY_PATH", "./memory_store.json"))
+memory_store = KnowledgeStore(getattr(settings, "MEMORY_PATH", "./memory_store.json"))
 
-# ---------- Request models ----------
+# ---------- Pydantic request models ----------
 class URLIn(BaseModel):
     url: str
 
@@ -71,25 +68,27 @@ class PasswordIn(BaseModel):
 class TextIn(BaseModel):
     text: str
 
-# ---------- Helper: Background task to call responders ----------
-def _bg_send_responders(decision: dict):
+# ---------- Background responders ----------
+def _bg_send_responders(decision: dict) -> None:
     """
-    synchronous wrapper executed in background thread by FastAPI.
-    Calls synchronous responders (Slack, Email) and also awaits async ones by running an event loop.
+    Synchronous background worker that calls responders.
+    It will:
+      - post to Slack (sync)
+      - send email (sync)
+      - call n8n webhook (async, run via new event loop)
     """
     try:
-        # log to Slack (synchronous requests-based SlackAlert)
+        # Slack
         try:
             if getattr(slack_responder, "webhook_url", None):
-                slack_text = f"Cybersec Alert: type={decision.get('type')} action={decision.get('action')} score={decision.get('combined_score')} reason={decision.get('reason')}"
+                slack_text = f"Cybersec Alert — type={decision.get('type')} action={decision.get('action')} score={decision.get('combined_score')} reason={decision.get('reason')}"
                 slack_responder.post_message(slack_text)
         except Exception as e:
             logger.warning("Slack responder failed: %s", e)
 
-        # send email if desired (synchronous)
+        # Email
         try:
             if getattr(email_responder, "smtp_host", None):
-                # you can set rules for when to email (e.g., action == alert)
                 if decision.get("action") == "alert":
                     to = getattr(settings, "ALERT_EMAIL_TO", None)
                     if to:
@@ -99,13 +98,13 @@ def _bg_send_responders(decision: dict):
         except Exception as e:
             logger.warning("Email responder failed: %s", e)
 
-        # call async n8n responder by running an event loop
+        # n8n webhook (async)
         try:
             import asyncio
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(n8n_responder.trigger_workflow(decision))
-            logger.info("n8n responder result: %s", result)
+            res = loop.run_until_complete(n8n_responder.trigger_workflow(decision))
+            logger.info("n8n responder result: %s", res)
             loop.close()
         except Exception as e:
             logger.warning("n8n responder failed: %s", e)
@@ -114,19 +113,23 @@ def _bg_send_responders(decision: dict):
         logger.exception("Background responders encountered an error: %s", e)
 
 
-# ---------- Endpoints ----------
+# ---------- Root ----------
 @app.get("/")
 def root():
     return {"message": "Cybersec Assistant running"}
 
+
+# ---------- Analyzer endpoints ----------
 @app.post("/analyze/url")
 async def analyze_url(payload: URLIn):
     try:
+        # safe fallback if no VT key is configured may be implemented in analyzer
         result = await url_analyzer.scan_url(payload.url)
         return result
     except Exception as e:
         logger.exception("analyze_url error")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/analyze/password")
 def analyze_password(payload: PasswordIn):
@@ -137,6 +140,7 @@ def analyze_password(payload: PasswordIn):
         logger.exception("analyze_password error")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/analyze/text")
 async def analyze_text(payload: TextIn):
     try:
@@ -146,34 +150,118 @@ async def analyze_text(payload: TextIn):
         logger.exception("analyze_text error")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ---------- Agent routing endpoint ----------
 @app.post("/agent/route")
 async def agent_route(body: dict, background_tasks: BackgroundTasks):
     """
     Accepts JSON with 'type' in ('url','password','text') and corresponding field.
-    Example: {"type":"url","url":"http://example.com"}
+    Example:
+      {"type":"url","url":"http://example.com"}
     """
     try:
-        decision = await decision_agent.route_and_decide(body)
-        # 1) log to DB
+        decision: dict = await decision_agent.route_and_decide(body)
+
+        # 1) log to DB (best-effort)
         try:
             db_logger.log_event(decision)
         except Exception as e:
-            logger.warning("DB log failed: %s", e)
+            logger.warning("DB logging failed: %s", e)
 
-        # 2) remember in memory
+        # 2) remember in memory (best-effort)
         try:
-            memory.remember_event(decision)
+            if hasattr(memory_store, "remember_event"):
+                memory_store.remember_event(decision)
         except Exception as e:
             logger.warning("Memory store failed: %s", e)
 
-        # 3) if action == alert, trigger responders asynchronously in the background
+        # 3) trigger responders asynchronously if alert
         if decision.get("action") == "alert":
             background_tasks.add_task(_bg_send_responders, decision)
 
-        # return the decision immediately
         return decision
     except Exception as e:
         logger.exception("agent_route error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------- Events endpoints (DB-backed) ----------
+@app.get("/events")
+def get_events(limit: int = 20):
+    try:
+        events = db_logger.get_last_events(limit)
+        return events
+    except Exception as e:
+        logger.exception("get_events error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/events/{event_id}")
+def get_event(event_id: int):
+    try:
+        ev = db_logger.get_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return ev
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("get_event error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/events/{event_id}")
+def delete_event(event_id: int):
+    try:
+        ok = db_logger.delete_event(event_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return {"deleted": event_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("delete_event error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------- Memory endpoints ----------
+@app.get("/memory")
+def read_memory():
+    try:
+        if hasattr(memory_store, "read"):
+            return memory_store.read()
+        # fallback: return last events if read not implemented
+        return {"last_events": memory_store.last_events(10) if hasattr(memory_store, "last_events") else []}
+    except Exception as e:
+        logger.exception("read_memory error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/memory")
+def write_memory(payload: dict):
+    try:
+        if hasattr(memory_store, "write"):
+            memory_store.write(payload)
+            return {"status": "stored", "data": payload}
+        raise HTTPException(status_code=501, detail="Memory write not implemented")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("write_memory error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/memory")
+def clear_memory():
+    try:
+        if hasattr(memory_store, "clear"):
+            memory_store.clear()
+            return {"status": "memory cleared"}
+        raise HTTPException(status_code=501, detail="Memory clear not implemented")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("clear_memory error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
