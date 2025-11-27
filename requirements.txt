@@ -1,3 +1,4 @@
+# //reminder to add version for packages
 fastapi
 uvicorn
 httpx
@@ -5,13 +6,23 @@ python-dotenv
 openai
 streamlit
 pydantic
+requests
 aiohttp
 cryptography
-pytest
 pytest-asyncio
 zxcvbn
-requests
-pytest
-pytest-asyncio
-pyarrow
 responder
+pytest
+pyarrow
+pydantic_settings
+typesystem
+typer
+rich
+jinja2
+playwright
+browser-use
+html2text
+duckduckgo-search
+GitPython
+plotly
+
