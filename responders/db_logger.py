@@ -6,6 +6,7 @@ from typing import Optional, List, Dict
 import os
 import re
 import logging
+import json
 
 logger = logging.getLogger("cybersec-assistant.dblogger")
 
@@ -15,7 +16,6 @@ class DBLogger:
         db_path can be:
           - "./data/events.db"
           - "sqlite:///./data/events.db"
-        If db_path is falsy, falls back to "./events.db".
         """
         if not db_path:
             db_path = "./events.db"
@@ -27,8 +27,11 @@ class DBLogger:
         else:
             sqlite_file = db_path
 
+        # make absolute
+        sqlite_file = os.path.abspath(sqlite_file)
+
         # ensure directory exists
-        dirpath = os.path.dirname(os.path.abspath(sqlite_file))
+        dirpath = os.path.dirname(sqlite_file)
         if dirpath and not os.path.exists(dirpath):
             try:
                 os.makedirs(dirpath, exist_ok=True)
@@ -40,7 +43,6 @@ class DBLogger:
         self._ensure_tables()
 
     def _connect(self) -> sqlite3.Connection:
-        # enable row factory for convenience
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
@@ -58,39 +60,40 @@ class DBLogger:
                     created_at TEXT
                 )
             """)
-            
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
-            if "score" not in columns:
-                conn.execute("ALTER TABLE events ADD COLUMN score REAL;")
-            if "reason" not in columns:
-                conn.execute("ALTER TABLE events ADD COLUMN reason TEXT;")
-            if "data" not in columns:
-                conn.execute("ALTER TABLE events ADD COLUMN data TEXT;")
-            if "created_at" not in columns:
-                conn.execute("ALTER TABLE events ADD COLUMN created_at TEXT;")
             conn.commit()
 
     # ------------------ SAVE EVENT ------------------
-    def log_event(self, decision: dict) -> None:
+    def log_event(self, decision: dict) -> int:
         """
         Insert a decision dict into events table.
         Expected keys in decision: type, action, combined_score, reason.
-        Stores str(decision) in data column as fallback.
+        Stores JSON dump of decision in data column.
+        Returns inserted row id.
         """
         with self._lock:
             with self._connect() as conn:
-                conn.execute("""
+                now = datetime.utcnow().isoformat() + "Z"
+                data_json = None
+                try:
+                    data_json = json.dumps(decision, default=str)
+                except Exception:
+                    # fallback to str
+                    data_json = json.dumps({"raw": str(decision)})
+                cur = conn.execute("""
                     INSERT INTO events (type, action, score, reason, data, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     decision.get("type"),
                     decision.get("action"),
-                    decision.get("combined_score"),
+                    decision.get("combined_score") or decision.get("score") or 0,
                     decision.get("reason"),
-                    str(decision),
-                    datetime.utcnow().isoformat()
+                    data_json,
+                    now
                 ))
                 conn.commit()
+                rowid = cur.lastrowid
+                logger.debug("Logged event id=%s type=%s action=%s", rowid, decision.get("type"), decision.get("action"))
+                return rowid
 
     # ------------------ GET LAST EVENTS ------------------
     def get_last_events(self, limit: int = 20) -> List[Dict]:
@@ -105,18 +108,25 @@ class DBLogger:
             """, (limit,))
             rows = cur.fetchall()
 
-            return [
-                {
+            out = []
+            for r in rows:
+                data_field = r["data"]
+                parsed = None
+                if data_field:
+                    try:
+                        parsed = json.loads(data_field)
+                    except Exception:
+                        parsed = data_field
+                out.append({
                     "id": int(r["id"]),
                     "type": r["type"],
                     "action": r["action"],
                     "score": r["score"],
                     "reason": r["reason"],
-                    "data": r["data"],
+                    "data": parsed,
                     "created_at": r["created_at"]
-                }
-                for r in rows
-            ]
+                })
+            return out
 
     # ------------------ GET SINGLE EVENT ------------------
     def get_event(self, event_id: int) -> Optional[Dict]:
@@ -129,13 +139,20 @@ class DBLogger:
             r = cur.fetchone()
             if not r:
                 return None
+            data_field = r["data"]
+            parsed = None
+            if data_field:
+                try:
+                    parsed = json.loads(data_field)
+                except Exception:
+                    parsed = data_field
             return {
                 "id": int(r["id"]),
                 "type": r["type"],
                 "action": r["action"],
                 "score": r["score"],
                 "reason": r["reason"],
-                "data": r["data"],
+                "data": parsed,
                 "created_at": r["created_at"]
             }
 
