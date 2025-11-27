@@ -4,3 +4,6 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 2nd terminal
 
 streamlit run ui/app.py
+
+3rd venv activation 
+.\.venv\Scripts\Activate.ps1 
