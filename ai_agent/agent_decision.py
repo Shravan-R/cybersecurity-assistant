@@ -62,7 +62,8 @@ class AgentDecision:
             # 🔥 FINAL SCORE (FIX)
             final_score = calculate_final_score(
                 heuristic_score,
-                reputation_score
+                reputation_score,
+                normalized_url
             )
 
             label = (
@@ -73,11 +74,13 @@ class AgentDecision:
                 else "benign"
             )
 
-            reason = (
-                " | ".join(heuristics.get("heuristic_reasons", []))
-                if heuristics.get("heuristic_reasons")
-                else analysis.get("reason", "URL analysis")
-            )
+            # ✅ FIXED REASON LOGIC
+            if final_score < 35:
+                reason = "No significant phishing indicators detected"
+            elif heuristics.get("heuristic_reasons"):
+                reason = " | ".join(heuristics.get("heuristic_reasons"))
+            else:
+                reason = analysis.get("reason", "URL analysis")
 
             return self._final_decision(
                 input_type="url",

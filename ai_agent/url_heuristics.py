@@ -90,3 +90,28 @@ def analyze_url_heuristics(url: str) -> dict:
         "heuristic_score": min(score, 80),
         "heuristic_reasons": reasons
     }
+
+SHORTENER_DOMAINS = ["bit.ly", "tinyurl.com", "t.co", "goo.gl"]
+
+def analyze_url_heuristics(url: str):
+    score = 0
+    reasons = []
+
+    # 🚨 Brand impersonation detection
+    if any(brand in url.lower() for brand in ["paypal", "microsoft", "amazon", "bank", "google"]):
+        score += 40
+        reasons.append("Brand impersonation detected")
+
+# 🚨 Suspicious keywords
+    if any(word in url.lower() for word in ["login", "verify", "secure", "account", "update"]):
+        score += 30
+        reasons.append("Suspicious phishing keywords in URL")
+
+    if any(domain in url for domain in SHORTENER_DOMAINS):
+        score += 40
+        reasons.append("URL shortener detected (possible obfuscation)")
+
+    return {
+        "heuristic_score": score,
+        "heuristic_reasons": reasons
+    }

@@ -159,10 +159,15 @@ class PasswordChecker:
             label = "malicious"
             reason = "password found in breach database"
         else:
-            base = int(100 - min(100, (entropy_bits / 80) * 100))
+                # Improved scoring logic
             if is_common:
-                base = max(base, 85)
-            risk_score = base
+                risk_score = 85
+            elif entropy_bits < 40:
+                risk_score = 75
+            elif entropy_bits < 60:
+                risk_score = 50
+            else:
+                risk_score = 20
 
             if risk_score >= 70:
                 label = "suspicious"
@@ -171,15 +176,27 @@ class PasswordChecker:
                 label = "benign"
                 reason = "no breach indicators"
 
+       
+       # ---- Strength classification (FIXED LOGIC) ----
+        if is_common or pwned_count > 0:
+            strength = "weak"
+        elif entropy_bits < 40:
+            strength = "weak"
+        elif entropy_bits < 60:
+            strength = "medium"
+        else:
+            strength = "strong"
+
         return {
-            "label": label,
-            "risk_score": int(max(0, min(100, risk_score))),
-            "reason": reason,
-            "details": {
-                "entropy_bits": round(entropy_bits, 2),
-                "zxcvbn": zx,
-                "common_password": is_common,
-                "pwned_count": pwned_count,
-            },
-            "source": "password-agent",
-        }
+        "label": label,
+        "risk_score": int(max(0, min(100, risk_score))),
+        "reason": reason,
+        "strength": strength,   # ✅ FIXED
+        "details": {
+            "entropy_bits": round(entropy_bits, 2),
+            "zxcvbn": zx,
+            "common_password": is_common,
+            "pwned_count": pwned_count,
+        },
+        "source": "password-agent",
+    }

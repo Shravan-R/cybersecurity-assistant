@@ -113,23 +113,97 @@ class TextDetector:
         if not text or not text.strip():
             return {"label": "benign", "reason": "empty input", "risk_score": 0}
 
+        text_lower = text.lower()
         urls = extract_urls(text)
 
-        # ===== 1️⃣ ML MODEL (PRIMARY) =====
+        ml_score = 0
+
+    # ===== 1️⃣ ML MODEL =====
         if self.ml_model and self.vectorizer:
             vec = self.vectorizer.transform([text])
             prob = self.ml_model.predict_proba(vec)[0][1]
-            score = int(prob * 100)
+            ml_score = int(prob * 100)
 
-            label = "malicious" if score >= 70 else "suspicious" if score >= 40 else "benign"
+    # ===== 2️⃣ HEURISTICS (ALWAYS RUN) =====
+        heuristic_score = 0
+        reasons = []
 
-            return {
-                "label": label,
-                "reason": "ML model prediction",
-                "risk_score": score,
-                "urls": urls,
-                "source": "ml"
-            }
+        # 🚨 Modern phishing patterns (VERY IMPORTANT)
+        if any(phrase in text_lower for phrase in [
+            "new device",
+            "suspicious login",
+            "unusual activity",
+            "confirm your account",
+            "confirm your session",
+            "verify your identity",
+            "security alert"
+            ]):
+            heuristic_score += 35
+            reasons.append("Account security alert pattern detected")
+
+# 🚨 Action-based words
+        if any(word in text_lower for word in ["confirm", "verify", "secure"]):
+            heuristic_score += 20
+            reasons.append("Account action request detected")
+
+    # Urgency
+        if any(word in text_lower for word in ["urgent", "immediately", "24 hours", "suspended", "limited time"]):
+            heuristic_score += 30
+            reasons.append("Urgency detected")
+
+    # Call to action
+        if any(word in text_lower for word in ["click here", "verify", "login", "update", "confirm"]):
+            heuristic_score += 30
+            reasons.append("Call-to-action detected")
+
+    # Threat language
+        if any(word in text_lower for word in ["suspended", "blocked", "unauthorized", "security alert"]):
+            heuristic_score += 25
+            reasons.append("Threat language detected")
+
+    # Link presence
+        if urls:
+            heuristic_score += 20
+            reasons.append("Link detected")
+
+    # ===== 3️⃣ FINAL SCORE (COMBINED) =====
+        final_score = int((0.6 * heuristic_score) + (0.4 * ml_score))
+        # 🔥 Minimum risk baseline for generic messages
+        if final_score == 0:
+            final_score = 30
+
+        # 🔥 Strong phishing combination override
+        if (
+            any(word in text_lower for word in ["blocked", "suspended"]) and
+            any(word in text_lower for word in ["click here", "verify", "update"]) and
+            any(word in text_lower for word in ["24 hours", "immediately", "urgent"])
+):
+            final_score = max(final_score, 85)
+
+        # 🔥 High-confidence phishing override (FINAL FIX)
+        if any(phrase in text_lower for phrase in [
+            "new device",
+            "confirm your session",
+            "verify your account",
+            "unusual activity"
+        ]):
+            final_score = max(final_score, 75)
+
+    # ===== 4️⃣ LABEL =====
+        if final_score >= 70:
+            label = "malicious"
+        elif final_score >= 40:
+            label = "suspicious"
+        else:
+            label = "benign"
+
+        return {
+            "label": label,
+            "risk_score": final_score,
+            "reason": " | ".join(reasons) if reasons else "ML + heuristic analysis",
+            "urls": urls,
+            "source": "ml+heuristic"
+        }
 
         # ===== 2️⃣ OPENAI (SECONDARY) =====
         if OPENAI_AVAILABLE and self.openai_key:

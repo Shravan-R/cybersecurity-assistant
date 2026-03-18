@@ -1,19 +1,17 @@
 # ai_agent/scoring.py
 # Final scoring logic prioritizing heuristics over reputation
 
-def calculate_final_score(heuristic_score: int, reputation_score: int) -> int:
+def calculate_final_score(heuristic_score: int, reputation_score: int, url: str = "") -> int:
     """
-    Combine heuristic and reputation scores.
-    Heuristics dominate for zero-day phishing.
+    Balanced scoring: combines heuristic + reputation properly
     """
-    # Floor reputation for new / unknown domains
-    reputation_score = max(reputation_score, 10)
 
-    # Weighted score
-    if heuristic_score >= 60:
-        return min(heuristic_score + 15, 100)
+    # Base weighted score
+    combined_score = (0.6 * reputation_score) + (0.4 * heuristic_score)
 
-    final_score = heuristic_score * (reputation_score / 50)
-    return min(int(final_score), 100)
+    # 🔥 High-risk TLD override (demo saver)
+    if any(tld in url for tld in [".ru", ".xyz", ".tk"]):
+        combined_score += 30
 
+    return min(int(combined_score), 100)
 
