@@ -8,7 +8,7 @@ class N8NResponder:
     Async responder to send decision payloads to an n8n webhook.
     """
 
-    def __init__(self, webhook_url: str = "http://localhost:5678/webhook-test/cybersec-assistant-webhook", timeout: float = 10.0):
+    def __init__(self, webhook_url: str = "http://localhost:5678/webhook/cybersec-assistant-webhook", timeout: float = 10.0):
         self.webhook_url = webhook_url
         self.timeout = timeout
 
